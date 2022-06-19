@@ -1,4 +1,7 @@
 import * as THREE from "/modules/three.module.js";
+import { Octree } from "/modules/Octree.js";
+import { OctreeHelper } from "/modules/OctreeHelper.js";
+import { Capsule } from "/modules/Capsule.js";
 
 class MultiplayerGameInterface {
   constructor(scene, camera, MultiplayerSubsystemClientHandler) {
@@ -12,6 +15,49 @@ class MultiplayerGameInterface {
     this.player;
     // this.PlayerMeshes = [];
     this.playerState = {};
+    this.playerProjectileState = {};
+
+    this.vector1 = new THREE.Vector3();
+    this.vector2 = new THREE.Vector3();
+    this.vector3 = new THREE.Vector3();
+
+    this.GRAVITY = 9.8 ** 2;
+    this.NUM_SPHERES = 100;
+    this.SPHERE_RADIUS = 2;
+    this.STEPS_PER_FRAME = 5;
+
+    this.sphereGeometry = new THREE.IcosahedronGeometry(this.SPHERE_RADIUS, 5);
+    this.sphereMaterial = new THREE.MeshLambertMaterial({ color: 0xbbbb44 });
+
+    this.spheres = [];
+    this.sphereIdx = 0;
+
+    let mouseTime = 0;
+
+    this.playerVelocity = new THREE.Vector3();
+    this.playerDirection = new THREE.Vector3();
+    this.playerCollider = new Capsule(
+      new THREE.Vector3(0, 0.35, 0),
+      new THREE.Vector3(0, 1, 0),
+      0.35
+    );
+
+    for (let i = 0; i < this.NUM_SPHERES; i++) {
+      const sphere = new THREE.Mesh(this.sphereGeometry, this.sphereMaterial);
+      sphere.castShadow = true;
+      sphere.receiveShadow = true;
+
+      this.scene.add(sphere);
+
+      this.spheres.push({
+        mesh: sphere,
+        collider: new THREE.Sphere(
+          new THREE.Vector3(0, -100, 0),
+          this.SPHERE_RADIUS
+        ),
+        velocity: new THREE.Vector3(),
+      });
+    }
   }
 
   CheckForNewPlayersAndAddThemOrUpdatePositions() {
@@ -35,21 +81,19 @@ class MultiplayerGameInterface {
         if (element in this.GameMeshState) {
           // console.log("TRUE");
 
-          //Check
-
-          //If the client knows that it is not the observed replicated objects.
           if (element != this.MultiplayerSubsystemClientHandler.socket.id) {
-            //If element is of type Player
-            if (element != this.MultiplayerSubsystemClientHandler)
-              //Given this replicated object is not from the client, update position
-              this.GameMeshState[element].position.x =
-                this.MultiplayerSubsystemClientHandler.gameState[element].x;
+            this.GameMeshState[element].position.x =
+              this.MultiplayerSubsystemClientHandler.gameState[element].x;
             this.GameMeshState[element].position.y =
               this.MultiplayerSubsystemClientHandler.gameState[element].y;
             this.GameMeshState[element].position.z =
               this.MultiplayerSubsystemClientHandler.gameState[element].z;
 
-            //Given this replicated object is not from the client, update orientation
+            // console.log(
+            //   "CAMERA LOOK VEC",
+            //   this.MultiplayerSubsystemClientHandler.gameState[element]
+            //     .cameraLookVec
+            // );
             this.GameMeshState[element].lookAt(
               this.MultiplayerSubsystemClientHandler.gameState[element]
                 .cameraLookVec.x +
@@ -62,8 +106,6 @@ class MultiplayerGameInterface {
                 this.MultiplayerSubsystemClientHandler.gameState[element].z
             );
           }
-
-          //If the replicated object IS IN FACT THIS OBJECT, than update the GameMeshState parameters
           if (element == this.MultiplayerSubsystemClientHandler.socket.id) {
             this.GameMeshState[element].position.x = this.camera.position.x;
             this.GameMeshState[element].position.y = this.camera.position.y;
@@ -71,17 +113,11 @@ class MultiplayerGameInterface {
             this.GameMeshState[element].material.visible = false;
             this.GameMeshState[element].children[0].material.visible = false;
             this.GameMeshState[element].children[1].material.visible = false;
-            console.log(this.GameMeshState[element]);
+            // console.log(this.GameMeshState[element]);
           }
         } else {
-          //And lastly, if the replicated object is not in the mesh state, create the mesh object
           console.log("ADDING PLAYER");
-
-          //If element is of type player
           this.GameMeshState[element] = this.createPlayer();
-
-          // //If element is of type projectile
-          // this.GameMeshState[element] = this.createProjectile();
         }
       }
 
@@ -92,56 +128,77 @@ class MultiplayerGameInterface {
         // console.log("DISCONNECTED ID ELEMENT", element);
         // console.log("To be removed", this.GameMeshState[element]);
         this.scene.remove(this.GameMeshState[element]);
-        // if (element in this.GameMeshState) {
-        //   console.log(
-        //     "To be removed",
-        //     this.MultiplayerSubsystemClientHandler.gameState[element]
-        //   );
-        //   this.scene.remove(
-        //     this.MultiplayerSubsystemClientHandler.gameState[element]
-        //   );
-        // }
       }
     }
   }
-  CheckForNewProjectilesAndAddThemOrUpdateProjectileLaunches() {
+
+  CheckForNewProjectilesAndAddThem() {
+    if (
+      this.MultiplayerSubsystemClientHandler.gameProjectileState == undefined
+    ) {
+      return null;
+    }
     if (
       this.MultiplayerSubsystemClientHandler.gameProjectileState != undefined
     ) {
-      // console.log("check", this.MultiplayerSubsystemClientHandler.gameProjectileState);
+      // console.log(
+      //   "We have a gameProjectile state",
+      //   this.MultiplayerSubsystemClientHandler.gameProjectileState
+      // );
 
       let listOfSocketIDs = Object.keys(
-        //ServergameProjectileState
-        this.MultiplayerSubsystemClientHandler.gameProjectileState
+        //ServerGameState
+        this.MultiplayerSubsystemClientHandler.gameState
       );
-
-      let listOfDisconnectedSocketIDs =
-        this.MultiplayerSubsystemClientHandler.disconnected_ids;
-
       for (let i = 0; i < listOfSocketIDs.length; i++) {
         //checking in
         const element = listOfSocketIDs[i];
-        // console.log(element);
+        // console.log("THE SOCKET ID", element);
 
-        //
-        if (element in this.GameProjectileMeshState) {
-          // console.log("TRUE");
-          return;
-        }
-        if (element == this.MultiplayerSubsystemClientHandler.socket.id) {
-          return;
+        if (element in this.GameMeshState) {
+          //If its not me
+          if (element == this.MultiplayerSubsystemClientHandler.socket.id) {
+            return null;
+          }
+          //Should not be me
+          if (element != this.MultiplayerSubsystemClientHandler.socket.id) {
+            // console.log(
+            //   "THE SOCKET ID",
+            //   element,
+            //   this.MultiplayerSubsystemClientHandler.socket.id
+            // );
+            let cameraLookVec = {
+              x: this.MultiplayerSubsystemClientHandler.gameProjectileState[
+                element
+              ].cameraLookVec.x,
+              y: this.MultiplayerSubsystemClientHandler.gameProjectileState[
+                element
+              ].cameraLookVec.y,
+              z: this.MultiplayerSubsystemClientHandler.gameProjectileState[
+                element
+              ].cameraLookVec.z,
+            };
+
+            let firingPosition = {
+              x: this.MultiplayerSubsystemClientHandler.gameProjectileState[
+                element
+              ].x,
+              y: this.MultiplayerSubsystemClientHandler.gameProjectileState[
+                element
+              ].y,
+              z: this.MultiplayerSubsystemClientHandler.gameProjectileState[
+                element
+              ].z,
+            };
+            // console.log(
+            //   "FIRING POSITION, CAMERA LOOK VEC",
+            //   firingPosition,
+            //   cameraLookVec
+            // );
+            return { p: firingPosition, c: cameraLookVec };
+          }
         }
       }
-
-      //And lastly, if the replicated object is not in the mesh state, create the mesh object
-      console.log("ADDING PROJECTILE");
-      this.GameProjectileMeshState[element] = this.createProjectile();
-    }
-
-    // console.log("DISCONNECTED IDS", listOfDisconnectedSocketIDs);
-    for (let i = 0; i < listOfDisconnectedSocketIDs.length; i++) {
-      const element = listOfDisconnectedSocketIDs[i];
-      this.scene.remove(this.GameProjectileMeshState[element]);
     }
   }
 
@@ -193,51 +250,94 @@ class MultiplayerGameInterface {
   }
 
   createProjectile() {
-    //Three.js
-    let mat = new THREE.MeshPhongMaterial({
-      wireframe: false,
-      transparent: false,
-      depthTest: true,
-      side: THREE.DoubleSide,
-      color: new THREE.Color(0x004ea1),
-    });
+    // console.log("GameInterface.js, creatingProjectile()");
+    const sphere = this.spheres[this.sphereIdx];
 
-    let mat2 = new THREE.MeshPhongMaterial({
-      wireframe: false,
-      transparent: false,
-      depthTest: true,
-      side: THREE.DoubleSide,
-      color: new THREE.Color(0x51dbe8),
-    });
-    let geo = new THREE.BoxGeometry(10, 10, 10);
-    let mesh = new THREE.Mesh(geo, mat);
-    mesh.position.x = this.camera.position.x;
-    mesh.position.y = this.camera.position.y;
-    mesh.position.z = this.camera.position.z;
+    this.camera.getWorldDirection(this.cameraLookDir(this.camera));
 
-    let sphereGeo = new THREE.SphereGeometry(2, 10, 10);
-    let sphereMesh = new THREE.Mesh(sphereGeo, mat2);
-    sphereMesh.position.x = this.camera.position.x + 3;
-    sphereMesh.position.y = this.camera.position.y + 2.5;
-    sphereMesh.position.z = this.camera.position.z + 5;
+    sphere.collider.center
+      .copy(this.camera.position)
+      .addScaledVector(
+        this.cameraLookDir(this.camera),
+        this.playerCollider.radius * 1.5
+      );
 
-    let sphereGeo2 = new THREE.SphereGeometry(2, 10, 10);
-    let sphereMesh2 = new THREE.Mesh(sphereGeo2, mat2);
-    sphereMesh2.position.x = this.camera.position.x - 3;
-    sphereMesh2.position.y = this.camera.position.y + 2.5;
-    sphereMesh2.position.z = this.camera.position.z + 5;
+    // throw the ball with more force if we hold the button longer, and if we move forward
 
-    mesh.attach(sphereMesh);
-    mesh.attach(sphereMesh2);
-    // sphereMesh.add(mesh);
-    // mesh.add(sphereMesh);
-    this.scene.add(mesh);
+    const impulse =
+      15 + 250 * (1 - Math.exp((this.mouseTime - performance.now()) * 0.01));
 
-    // this.player = mesh;
-    // this.PlayerMeshes.push(mesh);
-    console.log("Player Mesh added to scene,", this.player);
-    return mesh;
+    sphere.velocity
+      .copy(this.cameraLookDir(this.camera))
+      .multiplyScalar(impulse);
+    sphere.velocity.addScaledVector(this.playerVelocity, 2);
+
+    this.sphereIdx = (this.sphereIdx + 1) % this.spheres.length;
+    console.log("GameInterface.js, finished creatingProjctile()");
   }
+
+  spheresCollisions() {
+    for (let i = 0, length = this.spheres.length; i < length; i++) {
+      const s1 = this.spheres[i];
+
+      for (let j = i + 1; j < length; j++) {
+        const s2 = this.spheres[j];
+
+        const d2 = s1.collider.center.distanceToSquared(s2.collider.center);
+        const r = s1.collider.radius + s2.collider.radius;
+        const r2 = r * r;
+
+        if (d2 < r2) {
+          const normal = this.vector1
+            .subVectors(s1.collider.center, s2.collider.center)
+            .normalize();
+          const v1 = this.vector2
+            .copy(normal)
+            .multiplyScalar(normal.dot(s1.velocity));
+          const v2 = this.vector3
+            .copy(normal)
+            .multiplyScalar(normal.dot(s2.velocity));
+
+          s1.velocity.add(v2).sub(v1);
+          s2.velocity.add(v1).sub(v2);
+
+          const d = (r - Math.sqrt(d2)) / 2;
+
+          s1.collider.center.addScaledVector(normal, d);
+          s2.collider.center.addScaledVector(normal, -d);
+        }
+      }
+    }
+  }
+  updateSpheres = function (deltaTime, worldOctree) {
+    // console.log("updateSpheres()", this.spheres);
+    this.spheres.forEach((sphere) => {
+      sphere.collider.center.addScaledVector(sphere.velocity, deltaTime);
+
+      const result = worldOctree.sphereIntersect(sphere.collider);
+
+      if (result) {
+        sphere.velocity.addScaledVector(
+          result.normal,
+          -result.normal.dot(sphere.velocity) * 1.5
+        );
+        sphere.collider.center.add(result.normal.multiplyScalar(result.depth));
+      } else {
+        sphere.velocity.y -= this.GRAVITY * deltaTime;
+      }
+
+      const damping = Math.exp(-0.01 * deltaTime) - 1;
+      sphere.velocity.addScaledVector(sphere.velocity, damping);
+
+      // playerSphereCollision(sphere);
+    });
+
+    this.spheresCollisions();
+
+    for (const sphere of this.spheres) {
+      sphere.mesh.position.copy(sphere.collider.center);
+    }
+  };
 
   cameraLookDir(camera) {
     var vector = new THREE.Vector3(0, 0, -1);
@@ -255,12 +355,21 @@ class MultiplayerGameInterface {
       cameraLookVec: this.cameraLookDir(this.camera),
     };
   }
-
-  // updatePlayerMesh() {
-  //   this.player.position.x = this.camera.position.x;
-  //   this.player.position.y = this.camera.position.y;
-  //   this.player.position.z = this.camera.position.z;
-  // }
+  updatePlayerProjectileState() {
+    console.log(
+      "updatePlayerProjectileState(), this.playerProjectileState",
+      this.playerProjectileState
+    );
+    //DO NOT TOUCH
+    this.playerProjectileState = {
+      socket_id: this.MultiplayerSubsystemClientHandler.socket.id,
+      x: this.camera.position.x,
+      y: this.camera.position.y,
+      z: this.camera.position.z,
+      velocity: 30,
+      cameraLookVec: this.cameraLookDir(this.camera),
+    };
+  }
 
   updatePlayerMeshes() {
     for (let i = 0; i < PlayerMeshes.length; i++) {

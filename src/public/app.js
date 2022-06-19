@@ -31,6 +31,8 @@ let updatePositionForCamera;
 let MultiplayerSubsystemClientHandler;
 let MultiplayerGameInterfaceHandler;
 
+let makeOtherProjectileShoot;
+
 let sendmouse;
 let container;
 container = document.getElementById("container");
@@ -223,7 +225,47 @@ function init() {
     // sendmouse();
   });
 
+  makeOtherProjectileShoot = function (cameraPosition, cameraLookVec) {
+    console.log("Heard a shot and firing!", cameraPosition, cameraLookVec);
+    let cameraPositionV3 = new THREE.Vector3(
+      cameraPosition.x,
+      cameraPosition.y,
+      cameraPosition.z
+    );
+    let cameraLookVecV3 = new THREE.Vector3(
+      cameraLookVec.x,
+      cameraLookVec.y,
+      cameraLookVec.z
+    );
+    const sphere = spheres[sphereIdx];
+
+    camera.getWorldDirection(cameraLookVecV3);
+
+    sphere.collider.center
+      .copy(cameraPositionV3)
+      .addScaledVector(cameraLookVecV3, playerCollider.radius * 1.5);
+
+    // throw the ball with more force if we hold the button longer, and if we move forward
+
+    const impulse =
+      15 + 250 * (1 - Math.exp((mouseTime - performance.now()) * 0.01));
+
+    sphere.velocity.copy(cameraLookVecV3).multiplyScalar(impulse);
+    sphere.velocity.addScaledVector(playerVelocity, 2);
+
+    sphereIdx = (sphereIdx + 1) % spheres.length;
+  };
+
   window.addEventListener("click", () => {
+    console.log("App.js window.addEventListener ('click')");
+
+    MultiplayerGameInterfaceHandler.createProjectile();
+    MultiplayerGameInterfaceHandler.updatePlayerProjectileState();
+    MultiplayerSubsystemClientHandler.emit(
+      "ProjectileState",
+      MultiplayerGameInterfaceHandler.playerProjectileState
+    );
+
     console.log("Clicking!");
     const sphere = spheres[sphereIdx];
 
@@ -384,6 +426,21 @@ function animate() {
     );
 
     MultiplayerGameInterfaceHandler.CheckForNewPlayersAndAddThemOrUpdatePositions();
+
+    console.log("About to check for projectiles");
+    if (
+      MultiplayerGameInterfaceHandler.CheckForNewProjectilesAndAddThem() != null
+    ) {
+      console.log("projectiles not null!");
+      console.log(
+        "OUTPUT OF CHECK FOR NEW",
+        MultiplayerGameInterfaceHandler.CheckForNewProjectilesAndAddThem()
+      );
+
+      let res =
+        MultiplayerGameInterfaceHandler.CheckForNewProjectilesAndAddThem();
+      makeOtherProjectileShoot(res.p, res.c);
+    }
   }
 
   controls.update(time, prevTime);

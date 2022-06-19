@@ -37,7 +37,7 @@ class MultiplayerSubsystemClient {
       "ProjectilePosition",
       // When we receive data
       function (data) {
-        // console.log("SubsystemClient.js, ProjectileState", data);
+        console.log("SubsystemClient.js, ProjectileState", data);
 
         parent.LastGameProjectileState = parent.gameProjectileState;
         parent.gameProjectileState = data;
